@@ -21,14 +21,14 @@ fn new_map() -> OuterMap {
 #[derive(Debug, Clone, Copy)]
 struct Record {
     count: usize,
-    min: f32,
-    max: f32,
-    sum: f32,
+    min: f64,
+    max: f64,
+    sum: f64,
 }
 
 impl Record {
     #[inline(always)]
-    fn new(measurement: f32) -> Self {
+    fn new(measurement: f64) -> Self {
         Self {
             count: 1,
             min: measurement,
@@ -38,7 +38,7 @@ impl Record {
     }
 
     #[inline(always)]
-    fn update(&mut self, measurement: f32) {
+    fn update(&mut self, measurement: f64) {
         self.count += 1;
         self.min = self.min.min(measurement);
         self.max = self.max.max(measurement);
@@ -54,13 +54,13 @@ impl Record {
     }
 
     #[inline(always)]
-    fn avg(&self) -> f32 {
-        self.sum / (self.count as f32)
+    fn avg(&self) -> f64 {
+        self.sum / (self.count as f64)
     }
 }
 
 #[inline(always)]
-fn parse_float(x: &[u8]) -> f32 {
+fn parse_float(x: &[u8]) -> f64 {
     // Shamelessly stolen from a better solution.
     let neg = x[0] == b'-';
     let len = x.len();
@@ -73,13 +73,13 @@ fn parse_float(x: &[u8]) -> f32 {
         _ => unreachable!(),
     };
 
-    let int = (d1 as i32 * 100) + (d2 as i32 * 10) + (d3 as i32);
+    let int = ((d1 as i64) * 100) + ((d2 as i64) * 10) + (d3 as i64);
     let int = if neg { -int } else { int };
-    (int / 10) as f32
+    (int / 10) as f64
 }
 
 #[inline(always)]
-fn parse_row(data: &[u8]) -> (&[u8], f32) {
+fn parse_row(data: &[u8]) -> (&[u8], f64) {
     let mut split = data.split(|&c| c == b';');
     // Making the assumption that the data is correctly formatted.
     // Otherwise, what's the point?
