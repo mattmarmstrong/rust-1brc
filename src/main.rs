@@ -17,18 +17,21 @@ struct FastHasher {
 }
 
 impl FastHasher {
+    #[inline(always)]
     fn compute_hash(&mut self, int: usize) {
         self.hash = self.hash.rotate_left(5).bitxor(int).wrapping_mul(KEY)
     }
 }
 
 impl Default for FastHasher {
+    #[inline(always)]
     fn default() -> Self {
         Self { hash: 0 }
     }
 }
 
 impl Hasher for FastHasher {
+    #[inline(always)]
     fn write(&mut self, mut bytes: &[u8]) {
         while bytes.len() >= 8 {
             let qword: [u8; 8] = bytes[0..8].try_into().unwrap();
@@ -55,6 +58,8 @@ impl Hasher for FastHasher {
             self.compute_hash(*byte as usize);
         }
     }
+
+    #[inline(always)]
     fn finish(&self) -> u64 {
         self.hash as u64
     }
