@@ -1,12 +1,70 @@
 use std::collections::HashMap;
 use std::fs::File;
+use std::hash::{BuildHasherDefault, Hasher};
+use std::ops::BitXor;
 use std::os::unix::prelude::FileExt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 type Offset = Arc<AtomicUsize>;
-type InnerMap<'thread> = HashMap<&'thread [u8], Record>;
-type OuterMap = Arc<Mutex<HashMap<String, Record>>>;
+
+// This is basically a straight copy of the FxHasher from the rustc crate.
+// Was just curious about how the hashing internals worked. Let me live.
+const KEY: usize = 0x517c_c1b7_2722_0a95;
+
+struct FastHasher {
+    hash: usize,
+}
+
+impl FastHasher {
+    fn compute_hash(&mut self, int: usize) {
+        self.hash = self.hash.rotate_left(5).bitxor(int).wrapping_mul(KEY)
+    }
+}
+
+impl Default for FastHasher {
+    fn default() -> Self {
+        Self { hash: 0 }
+    }
+}
+
+impl Hasher for FastHasher {
+    fn write(&mut self, mut bytes: &[u8]) {
+        while bytes.len() >= 8 {
+            let qword: [u8; 8] = bytes[0..8].try_into().unwrap();
+            let qword = usize::from_ne_bytes(qword);
+            self.compute_hash(qword);
+            bytes = &bytes[8..];
+        }
+
+        if bytes.len() >= 4 {
+            let dword: [u8; 4] = bytes[0..4].try_into().unwrap();
+            let dword = u32::from_ne_bytes(dword) as usize;
+            self.compute_hash(dword);
+            bytes = &bytes[4..];
+        }
+
+        if bytes.len() >= 2 {
+            let word: [u8; 2] = bytes[0..2].try_into().unwrap();
+            let word = u16::from_ne_bytes(word) as usize;
+            self.compute_hash(word);
+            bytes = &bytes[2..];
+        }
+
+        if let Some(byte) = bytes.first() {
+            self.compute_hash(*byte as usize);
+        }
+    }
+    fn finish(&self) -> u64 {
+        self.hash as u64
+    }
+}
+
+type BuildFastHasher = BuildHasherDefault<FastHasher>;
+type FastHashMap<K, V> = HashMap<K, V, BuildFastHasher>;
+
+type InnerMap<'thread> = FastHashMap<&'thread [u8], Record>;
+type OuterMap = Arc<Mutex<FastHashMap<String, Record>>>;
 
 #[inline(always)]
 fn new_offset() -> Offset {
@@ -15,7 +73,7 @@ fn new_offset() -> Offset {
 
 #[inline(always)]
 fn new_map() -> OuterMap {
-    Arc::new(Mutex::new(HashMap::new()))
+    Arc::new(Mutex::new(FastHashMap::default()))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -128,7 +186,7 @@ fn parse_chunk(
     offset: usize,
     outer_map: OuterMap,
 ) {
-    let mut local_map = InnerMap::new();
+    let mut local_map = InnerMap::default();
     let buf = read_file_chunk(file, file_size, chunk_size, offset);
     let split = buf.split(|&b| b == b'\n');
     for line in split {
@@ -148,7 +206,6 @@ fn parse_chunk(
 }
 
 fn main() {
-    let now = std::time::Instant::now();
     let path = "./measurements.txt";
     let thread_count: usize = std::thread::available_parallelism().unwrap().into();
     let file = &File::open(path).unwrap();
@@ -178,6 +235,4 @@ fn main() {
         let max = r.max;
         println!("{}={:.1}/{:.1}/{:.1}", city, min, mean, max);
     }
-    let elapsed = now.elapsed();
-    println!("Total elapsed: {:.3?}", elapsed);
 }
